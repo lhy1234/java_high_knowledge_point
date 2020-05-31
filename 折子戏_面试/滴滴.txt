@@ -1,0 +1,94 @@
+一面
+1.自我介绍
+2.讲下快速排序，经典快排存在的问题
+3.1000万个取其中最大的100个数
+3.1 MapReduce的设计思想(分而治之，类似ForkJoinPool)，但是有内排序的问题
+	分而治之,先map再reduce
+3.2堆排序，堆排序的过程
+4.树的中序遍历实现
+	4.1递归
+	4.2借助栈
+5.介绍下osi7层模型
+6.arp协议缓存的过程
+7.TCP的控制位
+8.TCP的状态
+9.TCP建连的状态
+10.TCP的头部信息
+11.jvm监控系统是通过jmx做的么？再改进中，用的jdk自带的工具
+	vmvisual
+12.java内存结构
+	堆,栈,元空间,程序计数器.本地方法栈.
+13.jvm的栈跟线程关系
+	每个线程都有对应一个虚拟机栈和对应的程序计数器,线程独享,互不干扰
+14.是每个线程都会创建一个栈还是共用一个栈？
+	每个线程都有一个
+15.介绍volatile的功能
+	可见性,禁止指令重排,但不能保证原子性.
+16.总线锁的副作用
+	锁住总线,所有更新内存的操作都是独占的,其他线程无法访问内存,锁粒度太粗,所以用缓存锁,锁住缓存行.
+	MESI缓存一致性协议.
+17.内存屏障的汇编指令是啥？
+18.你有看过什么源码嘛？AQS
+	spring,tomcat,mybatis,hadoop,spark,jdk的AQS,容器
+19.介绍一下AQS
+	AbstractQueueSychronizer,是一个抽象类,很多并发工具都继承与它,比如重入锁ReentrantLock,CountDownLatch&Semaphore&CyclicBarrier&Atomic.
+20.扯到了CAS的原理
+	state
+	LockSupport
+	CLH队列
+21.AQS怎么阻塞当前线程
+	LockSupport.park
+22.locksupport的park在jvm怎么实现的?
+	线程的等待与挂起、唤醒等等就是使用的POSIX的线程API
+	park的许可通过原子变量_count实现，当被消耗时，_count为0，只要拥有许可，就会立即返回
+23.你了解垃圾回收吗？
+24.垃圾回收器让工作线程停顿下来是怎么做的？
+	STW
+	JVM里有一条特殊的线程－－VM Threads，专门用来执行一些特殊的VM Operation，比如分派GC，thread dump等，这些任务，都需要整个Heap，以及所有线程的状态是静止的，一致的才能进行。所以JVM引入了安全点(Safe Point)的概念，想办法在需要进行VM Operation时，通知所有的线程进入一个静止的安全点
+25.GC ROOts对象有几种？
+	虚拟机栈引用的对象
+	静态变量引用的对象
+	常量引用的对象
+	JNI引用的对象
+26.gc roots怎么判断一个对象没有被引用？
+	”GC Roots”的对象作为起始点，从这些节点开始向下搜索，搜索所走过的路径称为引用链(Reference Chain)，当一个对象到GC Roots没有任何引用链相连时，则证明此对象是不可用的
+二面
+1.介绍项目
+2.spark用的多么？
+3.在Java开发平时做了啥东西？
+4.看过源码？看过JDK spring的
+5.介绍下ConcurrentHashMap
+	线程安全,锁粒度更细,用到CAS,多线程下扩容时会帮助扩容领取任务.
+6.介绍下CAS
+	CompareAndSwap,比较并交换,四个参数,对象,地址,要交换的值原来的值,要修改新的值,如果内存中与原来的
+	值一值那么修改,如果不一致返回false.
+7.介绍下volatile
+	可见性,MESI缓存一致性协议
+	有序性,指令重排,lock指令前缀,内存屏障
+	原子性不能保证.i++操作
+8.算法题讲解其思路
+9.手写生产者和消费者（不让用BlockingQueue）
+	wait/notify
+	ReentrantLock/condition
+10.Mysql索引失效与优化的问题
+11.Mysql的索引结构
+12.回表操作分析
+13.介绍下左连接，右连接，全连接查询
+14.redis用的多么？
+15.redis是单线程是多线程？
+	单
+16.为什么redis单线程跑的快
+	epoll,基于内存,没有线程上下文切换
+17.redis存在线程安全的问题吗？为什么？
+	不存在,单线程,串行执行
+18.spring用的比较多么？
+19.spring aop怎么使用以及其原理？
+	动态代理.
+20.怎么实现远程rpc？扯到了netty
+	简单实现就是socket+线程池
+21.es用过么？稍微了解下，用的不多，检索快，可以搭集群
+	
+22.服务被别人攻击，不断刷新页面，怎么解决这个问题？
+	布隆过滤器.
+23.反问面试官怎么处理高并发，面试官说了redis es，我补充看到过lvs nginx cdn
+三面
