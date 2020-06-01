@@ -1,0 +1,904 @@
+volatile 轻量级同步机制 ：保证可见性，不保证原子性，禁止指令重排
+JMM java内容模型：三大特性 可见性 原子性 有序性
+    数据存储在主内存，线程工作时需讲变量从主内存复制到自己的内存空间中，修改完后再放入主内存
+cas 比较交换 自旋锁 unsafe    
+    缺点:do while 循环开销大；只能保证一个共享数据；引发出ABA问题（版本号）
+ArrayList 线程不安全，add数据时会参数java.util.concurrentModificationException（并发修改异常），可使用vector、集合工具类Collections.synchronizedList(new ArrayList) 、CopyOnWriteArrayList   
+HashSet 线程不安全，add数据时会参数java.util.concurrentModificationException（并发修改异常），集合工具类Collections.synchronizedSet(new HashSet) 、CopyOnWriteArraySet(public CopyOnWriteArraySet() {al = new CopyOnWriteArrayList<E>();})
+HashMap 线程不安全，put数据时会参数java.util.concurrentModificationException（并发修改异常），ConcurrentHashMap(分段锁)集合工具类Collections.synchronizedMap(new HashMap) 
+ConcurrentHashMap jdk7使用分段锁，1.8以后使用cas
+
+非公平锁/公平锁 Lock lock = new ReentrantLock({true：公平锁；空或false：非公平锁})，默认非公平锁;  公平锁：先来后到，顺序执行，按照申请锁的顺序；非公平锁：可加塞，会造成优先级翻转或饥饿现象，吞吐量大，synchronized也是一种非公平锁
+可重入锁（递归锁）ReentrantLock和Synchronized  线程能够进入任何它已经拥有的锁的所同步的代码块，（获取外层方法锁，可直接获取内层方法的锁）可避免死锁，lock与unlock必须配对
+自旋锁：尝试获取锁的线程不会立即阻塞，而是采用循环的方式尝试获取锁，可以减少线程上下文的切换的消耗，不过会增加cpu的消耗
+package com.zjf;
+
+import java.util.concurrent.atomic.AtomicReference;
+
+//自旋锁
+public class SpinLock {
+    private AtomicReference<Thread> lock = new AtomicReference<>();
+    public void lock(){
+        Thread currency =  Thread.currentThread();
+        System.out.println("thread:"+currency.getName()+"  coming in");
+        while (!lock.compareAndSet(null,currency)){
+
+        }
+    }
+    public void unlock(){
+        Thread currency =  Thread.currentThread();
+        if(lock.compareAndSet(currency,null)){
+            System.out.println("thread:"+currency.getName()+"  go out");
+        }
+    }
+
+    public static void main(String[] args) {
+        SpinLock lock = new SpinLock();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                lock.lock();
+                try {
+                    Thread.sleep(5000);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                lock.unlock();
+            }
+        },"t1").start();
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                lock.lock();
+                lock.unlock();
+            }
+        },"t2").start();
+    }
+}
+读写锁/互斥锁（独占锁：写锁；共享锁：读锁） reentrantLock和synchronized都是独占锁，只能同时被一个线程共享；reentrantReadWriteLock读写锁
+package com.zjf;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+
+//自定义缓存 读写锁
+public class Cache {
+   private volatile Map<String,Object> cacheData = new HashMap<>();
+    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    public void read(String key) throws InterruptedException {
+        lock.readLock().lock();
+        System.out.println(Thread.currentThread().getName()+" reading key "+ key );
+        Thread.sleep(300);
+        System.out.println(Thread.currentThread().getName()+" readed key "+ key +" get value:"+cacheData.get(key));
+        lock.readLock().unlock();
+    }
+
+    public void write(String key,Object value) throws InterruptedException {
+        lock.writeLock().lock();
+        System.out.println(Thread.currentThread().getName()+" writing "+key);
+        Thread.sleep(300);
+        cacheData.put(key,value);
+        System.out.println(Thread.currentThread().getName()+" write "+key+" over");
+        lock.writeLock().unlock();
+    }
+
+    public static void main(String[] args) {
+        Cache cache = new Cache();
+        for(int i=0;i<5;i++){
+            final int j = i;
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        cache.write(String.valueOf(j),j);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                }
+            },"t_write"+i).start();
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        cache.read(String.valueOf(j));
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                }
+            },"t_read"+i).start();
+        }
+    }
+}
+
+countDownLatch    计数器  countdownlatch.countdown() 计数器减一;countdownlatch.await()主线程阻塞，等待计数器减为零。
+CyclicBarrier   new CyclicBarrier(上限屏障数，Runable接口) cyclicBarrier.await（）阻塞当前线程，待所有线程完成后，执行runable接口
+Semaphore 信号量 semaphore.acquire()获得锁；semaphore.replace()释放锁；tryacquire（time，时间单位）尝试在时间内获取锁，若获取不到抛异常
+package com.zjf;
+
+import java.util.concurrent.Semaphore;
+
+//信号量demo 6车抢3车位
+public class SemaphoreDemo {
+
+    public static void main(String[] args) throws Exception{
+        Semaphore semaphore = new Semaphore(3);
+        for (int i=0;i<6;i++){
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        semaphore.acquire();
+                        System.out.println(Thread.currentThread().getName()+"获得车位");
+                        Thread.sleep(3000);
+                        System.out.println(Thread.currentThread().getName()+"离开车位");
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }finally {
+                        semaphore.release();
+                    }
+                }
+            },String.valueOf(i)).start();
+        }
+    }
+
+}
+阻塞队列
+   ArrayBlockingQueue由有限数组组成的阻塞队列
+   LinkedBlockingQueue由有限（默认integer max）链表组成的阻塞队列
+   synchronousQueue：单元素队列
+      抛出异常   									特殊值										阻塞						超时
+插入  add（e）										offer(e)true/false				put(e)					offer(e,time,unit)
+移除  remove()删除队首						poll()队首								take()					poll(time,unit)
+检查  element()返回队首						peek()null									无							无
+三个线程循环输出ABC
+package com.zjf;
+
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+
+public class SequeueThread4new {
+    private Lock lock = new ReentrantLock();
+    private Condition conditionA = lock.newCondition();
+    private Condition conditionB = lock.newCondition();
+    private Condition conditionC = lock.newCondition();
+    private String data =  "A";
+    public void printA(){
+        lock.lock();
+        try {
+            while (data=="B"||data=="C"){
+                conditionA.await();
+            }
+            System.out.println(Thread.currentThread().getName()+"print: A");
+            conditionB.signal();
+            data="B";
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } finally {
+            lock.unlock();
+        }
+    }
+    public void printB(){
+        lock.lock();
+        try {
+            while (data=="A"||data=="C"){
+                conditionB.await();
+            }
+            System.out.println(Thread.currentThread().getName()+"print: B");
+            conditionC.signal();
+            data="C";
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } finally {
+            lock.unlock();
+        }
+    }
+    public void printC(){
+        lock.lock();
+        try {
+            while (data=="A"||data=="B"){
+                conditionC.await();
+            }
+            System.out.println(Thread.currentThread().getName()+"print: C");
+            data="A";
+            conditionA.signal();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public static void main(String[] args) {
+        SequeueThread4new t = new SequeueThread4new();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                for(int i=0;i<10;i++){
+                    t.printA();
+                }
+            }
+        },"t_A").start();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                for(int i=0;i<10;i++){
+                    t.printB();
+                }
+            }
+        },"t_B").start();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                for(int i=0;i<10;i++){
+                    t.printC();
+                }
+            }
+        },"t_C").start();
+    }
+}
+futureTask实现了runable接口，构造方法中需要传入callAble接口实现类，多个线程共用一个futureTask，只有一个线程执行runable
+synchronized与lock的区别
+	1、原始构成
+		synchronized是关键字属于jvm层次，底层通过monitor对象来完成，wait和notify等方法也依赖monotor对象在同步块或方法中才能被调用monitorenter，monitorexist；
+		lock属于api层次的调用
+	2、使用方法
+	  synchronized不需要手动释放锁，不会造成死锁
+	  lock需手动释放，lock和unclock需配对使用
+	3、等待是否可中断
+		synchronized锁不可中断，只能正常结束或异常退出
+		renntranLock可设置超时退出tryLock(time,unit);lockInterruptibly()方法代码块中调用interrup()方法可中断
+	4、加锁是否公平
+		synchronized是非公平锁
+		lock可通过构造方法，true公平锁，false非公平锁，默认非公平锁	
+	5、绑定多个条件condition
+	   synchronized不支持，只能随机唤醒一个或所有
+	   reentrantLock可分组唤醒，精确唤醒某个线程	
+非静态方法的锁默认是this，静态方法的锁是对应的Class实例
+某一个时刻内，只能有一个线程持有锁，无论几个方法	   
+线程池：主要工作是控制工作线程的数量，处理过程中将任务放入队列，然后在线程中创建任务，如果线程超过了最大线程数量，则排队等候，等其他线程执行完再从队列中取出任务来执行
+        主要特点：线程复用，控制最大线程数，管理线程
+        优点：1降低资源消耗2提高响应速度3提高线程的可管理性	   
+获取线程的方式1、继承Thread类2、实现Runable接口3、实现Callable接口4、线程池，newFixedThreadPoll固定大小 newsingleThreadExcute单线程 newCacheTreadPoll不固定大小
+public static ExecutorService newFixedThreadPool(int var0) {
+        return new ThreadPoolExecutor(var0, var0, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue());
+    }
+public static ExecutorService newSingleThreadExecutor() {
+        return new Executors.FinalizableDelegatedExecutorService(new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue()));
+    }
+public static ExecutorService newCachedThreadPool() {
+        return new ThreadPoolExecutor(0, 2147483647, 60L, TimeUnit.SECONDS, new SynchronousQueue());
+    }            
+线程池7大参数：	
+public ThreadPoolExecutor(int corePoolSize,
+                              int maximumPoolSize,
+                              long keepAliveTime,
+                              TimeUnit unit,
+                              BlockingQueue<Runnable> workQueue) {
+        this(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue,
+             Executors.defaultThreadFactory(), defaultHandler);
+ThreadPoolExecutor(int corePoolSize,
+                              int maximumPoolSize,
+                              long keepAliveTime,
+                              TimeUnit unit,
+                              BlockingQueue<Runnable> workQueue,
+                              ThreadFactory threadFactory,
+                              RejectedExecutionHandler handler)              
+corePoolSize：线程池中常驻线程数量，线程池中不会被注销的线程
+maximumPoolSize：线程池中能够容纳同时执行的最大线程数量，必须大于等于1
+keepAliveTime：多余空闲线程存活时间，当前线程数量超过corePollSize时当空闲时间达到keepAliveTime时，多余空闲线程会被注销，直到剩下corepoolsize个线程为止
+unit：keepalivetime的时间单位
+workQueue：任务队列，被提交但是未被执行的任务
+threadFactory：生产线程池中工作线程的线程工厂，用于创建线程，一般使用默认
+handler：拒绝策略，当任务队列workqueue满了并且工作线程数大于等于线程池的最大线程数maximumpoolsize时的拒绝方式
+				1、abortpolicy，默认方式，直接抛出RejectedExecutorException异常
+				2、callerRunsPolicy:调节模式，既不会抛出异常，也不会抛弃任务，而是将任务回退到任务调用者，从而降低新的任务流量
+				3、DiscardOldestPolicy:抛弃队列中等待最久的任务，然后把当前任务加入队列中尝试再次提交任务
+				4、DiscardPolicy：直接抛弃任务，不予处理也不抛出异常，如果允许丢弃任务，是最佳选择    
+线程池大小配置原则：1、io密集型	 由于io密集型线程不是一直执行任务，则应配置尽量大些，一般可设置为cpu核数*2；cpu核数/（1-阻塞系数）  阻塞系数一般是0.8-0.9
+										2、cpu密集型 由于cpu密集型一直都处于高速的运算，而没有阻塞，一般公式 cpu核数+1
+死锁：两个及以上个线程争执行过程中夺资源而造成的相互等待的现象，若无其他外力干涉将会一直僵持下去
+			原因：系统资源不足；进程运行推进的顺序不合适；资源分配不当
+			死锁分析:linux ps-ef|grep ；windows jps -l获取进程号； jstack 进程号
+			package com.zjf;
+
+public class DeadLock implements Runnable{
+    private String lockA;
+    private String lockB;
+
+    public DeadLock(String lockA, String lockB) {
+        this.lockA = lockA;
+        this.lockB = lockB;
+    }
+
+    @Override
+    public void run() {
+        synchronized (lockA){
+            System.out.println(Thread.currentThread().getName()+"获得资源:"+lockA+"尝试获取资源:"+lockB);
+            try {
+                Thread.sleep(3000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            synchronized (lockB){
+                System.out.println(Thread.currentThread().getName()+"获得资源:"+lockB+"尝试获取资源:"+lockA);
+            }
+        }
+    }
+
+    public static void main(String[] args) {
+        String lockA="A";
+        String lockB="B";
+        new Thread(new DeadLock(lockA,lockB),"lockA").start();
+        new Thread(new DeadLock(lockB,lockA),"lockB").start();
+    }
+}
+										
+ArrayList在jdk7中new时直接创建长度为10的数组，jdk8中在new时初始化长度为0，只是在第一次add时会创建长度为10的数组
+HashSet:底层数组+链表，先用hashcode确定下标，再用eques确定是否一致
+HashMap可存储null的key和value，Hashtable 不能存储null的key，linkedHashMap在HashMap底层的基础上增加了一个指向前后元素的指针，便于遍历；treeMap  自然排序或key排序，底层使用红黑树
+HashMap 在jdk7之前使用数组+链表，在jdk8以后使用数组+链表+红黑树
+LinkedHashMap底层使用的是LinkedHashMap.Entry 继承了HashMap.Node，在原有数据结构基础上新增了befor和after节点，使LinkedHashMap有序
+默认填充因子0.75，提前扩容，能尽量减少链表长度
+CurrencyHashMap使用分段锁达到线程安全并提高效率
+map数据结构：key无序不可重复，value无序可重复；一个key-value键值对组成一个entry对象，也是无序不可重复
+   底层构成：1、jdk7 Map map = new HashMap（）；创建一个初始大小为16的entry数组，当使用map.put(key，value) 存储数据时，首先调用key所在的类中的hashcode方法，计算key的hash值，
+                经过某种算法，得到entry数组中的下标位置，如果该下标已存在元素，再调用key所在类中的equals方法，返回false在链表中添加，返回true更新，如果不存在元素直接添加，在不断
+                添加过程中，超过16大小，需要扩容，默认扩容2倍，并将原有的数据复制过来
+             2、jdk8     Map map = new HashMap（）创建一个空的node{}数组，首次调用put方法，会初始化node数组大小为16，当数组某一索引上的元素以链表的形式存在的数量>8且数组大小>64(小于64扩容)时，此索引上的
+             		所有数据采用红黑树方式存储
+单链表倒叙：
+package com.zjf;
+
+public class SingleLinkedNode {
+    private Object data;
+    private SingleLinkedNode next;
+
+    public SingleLinkedNode(Object data, SingleLinkedNode next) {
+        this.data = data;
+        this.next = next;
+    }
+
+    public static void main(String[] args) {
+        SingleLinkedNode n5 = new SingleLinkedNode(5,null);
+        SingleLinkedNode n4 = new SingleLinkedNode(4,n5);
+        SingleLinkedNode n3 = new SingleLinkedNode(3,n4);
+        SingleLinkedNode n2 = new SingleLinkedNode(2,n3);
+        SingleLinkedNode n1 = new SingleLinkedNode(1,n2);
+        System.out.println(sortNode(n1));
+    }
+
+    @Override
+    public String toString() {
+        String s = this.data.toString();
+        SingleLinkedNode next = this.next;
+        while (next!=null){
+            s+=","+next.data;
+            next = next.next;
+        }
+        return s;
+    }
+
+    private static SingleLinkedNode sortNode(SingleLinkedNode n) {
+        SingleLinkedNode node = new SingleLinkedNode(n.data,null);
+        while (n.next!=null){
+            SingleLinkedNode temp = n.next;
+            node = new SingleLinkedNode(temp.data,node);
+            n = temp;
+        }
+        return node;
+    }
+}
+JVM参数类型：标配参数-version   -help  -showversion
+						 X参数-Xint 执行解析  -Xcomp 第一次使用编译为本地代码  -Xmixed 混合模式
+						 XX参数（重点）：boolean类型，一般公式 -XX:+或-某个属性（+表示开启；-表示关闭），常见示例  是否打印GC收集jinfo -flag PrintGCDetails 进程号：-XX:+PrintGCDetails;串行垃圾回收器：-XX:+UseSerialGC
+						 								KV设值类型:一般公式  -XX:属性key=属性值value 常见示例；-XX:MetaspaceSize=128m;-XX:MaxtenuringThreshold=15 young区升old区需要存活的次数
+						 								jinfo举例，如何查看当前运行程序的配置：jinfo -flag 属性名 进程号 或者直接jinfo -flags
+						 								  -Xms等价于-XX:InitialHeapSize;-Xmx 等价于-XX:MaxHeapSize
+						 								  java -XX:PrintFlagsInitial -version查看jvm默认参数
+															java -XX:PrintFlagsFinal -version 查看jvm被修改参数（:= 这种类型的事被修改的；=表示初始的）
+															java -XX:PrintCommandLineFlags -version 命令行参数
+栈运行 堆存储															
+常用参数：-Xms128m -Xmx128m -Xss1024K -Xmn1024m -XX:MetaspaceSize=2048m
+					-Xms 初始内存大小，默认为物理内存的1/64,等价于-XX:InitialHeapSize   
+					-Xmx最大分配的内存,默认为物理内存的1/4,等价于-XX:MaxHeapSize	
+					-Xss 单个线程的大小默认栈大小为512k-1024k,等价于-XX:ThreadStackSize，值默认0，代表使用平台默认值 一般为1024K
+					-Xmn 年轻代大小
+					-XX:MetaspaceSize:元空间（jdk1.8，在jdk1.7中称为永久代）
+					-XX:+PrintGCDetails
+					-XX:SurvivorRatio 设置新生代中eden和s0、s1空间的比例默认配置-XX:SurvivorRatio=8,Eden:s0:s1=8:1:1,代表Eden区占比，s0和s1一样
+					-XX:NewRatio 设置年轻代和老年代在堆结构中的配比，默认-XX:NewRatio=2表示新生代占1 老年代占2，年轻的占总的堆内存的1/3,NewRatio就是设置老年代的配比，剩下的1给新生代
+					-XX:MaxTenuringThreshold:设置垃圾最大年龄，需在0-15之间，如果0，则年轻的对象不经过survivor区，直接进入老年代，对于老年代多的应用可以提高效率；如果设置为较大的值则会在survivor区进行多次复制，可以增加对象在年轻的的存活时间，增加年轻的被回收的概率，
+引用：高速缓存可使用软引用和弱引用；虚引用只要做对象回收的监控
+			强引用：当内存不足，jvm开始垃圾回收，对于强引用对象，就算出现oom内存溢出，也不会对该对象回收		
+			软引用：内存足 gc不回收，内存不足则回收
+			弱引用：只要GC就被回收
+			虚引用：就像没有被引用一样，在任何时候都可能会垃圾回收器回收，它不能单独使用，也不能通过它访问对象，必须和引用队列ReferenceQueue联合使用
+OOM：StackOverFlowError：栈溢出，常见场景 无限递归调用
+		 OutOfMemoryError:java heap space:堆溢出，常见场景 无限创建对象
+		           				GC overhead limit exceeded   gc回收时间过长（98%的gc时间只回收了不到2%的堆内存）
+		           				Direct buffer memory   本地内存不足导致，但是jvm堆内存充足，不会触发GC;NIO程序中经常遇到
+		           				unable to create new native thread 这个异常和平台有关，主要是由于线程start调用的start0()方法是native方法，linux允许单个进程创建的最大线程数是1024；可通过降低应用线程数或修改linux配置；需使用kill -9 进程号 杀死该进程
+		           				metaspace jdk8以后使用元空间代替永久代，主要存放虚拟机加载的类信息、常量池、静态变量、即时编译后的代码；元空间不在jvm堆内存中，而是在本地内存中
+垃圾回收算法：引用计数器，复制，标记清除，标记整理
+垃圾回收器：
+					serial串行；   为单线程环境设计且只使用一个线程进行垃圾回收，会暂停所有的用户线程   
+					parallel并行； 多个垃圾收集线程同时并行工作，此时用户线程是暂停的，适用于科学计算、大数据处理等若交互     
+					CMS并发标记清除；用户线程和垃圾回收线程同时进行（不一定是并行，可能是交替），不需要停顿用户线程 ，适应于对响应时间有要求的场景   
+					G1； 				    G1垃圾回收器把堆内存分成不同的区域然后并发的对其进行垃圾回收
+					ZGC(jdk11以后)
+查看使用的垃圾回收器：java -XX:+PrintCommandLineFlags -version	
+jdk默认的7中垃圾回收器：UseSerialOldGC(已不使用) UseSerialGC(串行GC) UseParallelGC(jdk8默认使用的，并行GC)UseConcMarkSweepGC(CMS GC 并发)UseG1GC(G1 gc)UseParNewGC(新生代GC)UseParallelOldGC(老年代GC)				
+新生代使用的垃圾回收器：UseSerialGC、UseParallelGC、UseParNewGC或者G1，算法常用复制
+老年代使用的垃圾回收器：UseSerialOldGC、UseParallelOldGC、UseConcMarkSweepGC或者G1，算法常用标记  
+参数：DefNew：default new Generation
+			Tenured: old
+			ParNew: parallel new Generation
+			PSYoungGen: parallel scavenge
+			ParOldGen: parallel old generation       				
+-XX:+UseSerialGC:在新生代使用UseSerialGC，复制算法 ； 老年代使用UseSerialOldGC	标记整理算法
+-XX:+UseParNewGC:在新生代使用UseParNewGC，复制算法；在老年代使用UseSerialOldGC(不在使用) CMS;	，标记整理算法；只影响新生代，不影响老年代	
+-XX+UseParallelGC:在新生代使用UseParallelGC，复制算法；老年代使用UseParallelOldGC	，标记整理算法 
+CMS：是一种以获得最短停顿时间为目标的收集器，注重响应速度，适用于堆内存大，核数多的应用，采用并发标记清楚算法
+-XX:UseConcMarkSweep:开启CMS GC，在新生代使用UseParNewGC复制算法，老年代使用CMS和UseSerialOldGC（CMS出错后的备用GC）组合
+-XX:UseG1GC:整体使用标记整理算法，局部通过复制算法，不会产生内存碎片
+cms 四个过程：初始标记（需停顿用户线程），标记GC Root可达的对象，时间耗时很短
+							并发标记（不需停顿），从第一步标记的对象出发，并发标记可达对象、
+							重新标记（需停顿）重新开始标记，修正上一步因程序运行而导致对象关系变化或新建的对象，耗时短、
+							并发清除（不停顿）并发的对无效对象的回收
+cms优点：并发收集停顿低
+	缺点：cpu压力大，CMS必须在老年代堆内存使用完之前完成回收，否则将触发CMS担保机制，使用UseSerialOldGC,会造成一次大的停顿	
+				标记清除会造成大量内存碎片
+GC选择器：单cpu或小内存，单机程序：-XX:+UseSerial
+					多CPU，需要大量吞吐量，如后台计算型应用：-XX:+UseParalGC或-XX:+UseParalOldGC
+					多cpu，追求停顿时间段，需快速响应的互联网应用：-XX:UseConcMarkSweepGC  -XX:UseParNewGC										
+G1相对cms，整体采用标记整理算法，局部复制算法，减少了内存碎片的产生， 同时又保留了GC停顿时间段的特点，用户可以自定义停顿时间，，而且eden和survivor、tenured等内存区域不在是连续的了，避免了全区域GC，每个分区也不固定，可能是yuang去也可能是old区，包含eden、survivor、old、humongous四种
+G1配置参数：-XX:UseG1GC  开启G1
+						-XX:G1HeapRegionSize=n  设置G1区域的大小，值是2的幂从1MB-32MB
+						-XX:MaxGCPauseMillis=n最大GC停顿时间  	
+springboot项目启动 java -server -Xms1024M -Xmx1024M -Xmn512m -Xss1024k（JVM参数） -jar Hello.jar(项目jar)			
+
+linux: top命令 查看整机负载情况load average 三个数值表示cpu1分钟、5分钟 15分钟的负载情况，三值相加除以3大于60%则负载较高			
+			vmstat -n 2 3:每2s采集一次，共计三次：查看cpu情况					
+			free -m/g查看系统内存m、g表示单位			
+			pidstat -p 进程号 -r 采集间隔秒数  查看某个进程内存情况
+			df -h 查看硬盘情况
+			iostat:io查看
+			ifstat：网络查看
+cpu过高分析：1、使用top命令找出cpu占比最高的进程
+						 2、ps -ef|grep 进一步定位到哪个应用程序
+						 3、ps -mp 进程号 -o THREAD,tid,time 定位到具体的线程（-m 显示所有的线程；-p pid进程使用的cpu时间；-o 该参数是用户自定义格式）
+						 4、将需要的线程id转换为16进制格式（英文小写）
+						 5、jstack 进程id |grep 线程id -A60(打印前60条)
+jdk8新特性：lambda表达式、函数式接口、方法引用与构造器引用、stream api、接口中的默认方法和静态方法、新日期api等
+		lambda：匿名函数 (参数)->lambda体，需要实现的功能
+			一：无参 无返回值  () -> {int a =0;System.out.println(a);}
+			二：有参数，无返回值 (a,b) -> {System.out.println(a+b);},如果只有一个参数，左侧（）可省略，使用 -> System.out.println(a)
+			三、lambda体有多条语句，() -> {语句1；2；3.。。 }，如果只有一条语句可省略{}，使用()->System.out.println(a)
+			四、lambda体只有一条语句并且有返回值，{} 和return都可以省略
+			五、参数列表的参数类型可省略，jvm可通过上下文推断出参数类型
+		lambda需要函数式接口（只有一个抽象方法的接口，可使用@FunctionInterface注解检查是否是函数式接口）的支持
+四大核心内置函数：Consumer<T> void accept(T t);消费型接口
+									Supplier<T> T get();供给型接口
+									Function<T,R> R apply(T t);函数型接口
+									Predicate<T> boolean test(T t);断言型接口 
+方法引用：实例对象::实例方法
+					类名::静态方法
+					实例对象::对象方法（String::equles）
+构造器引用：类名::new
+数组引用：Type[]::new
+stream：filter 过滤元素
+				limit 获取前n个元素
+				skip 获取后n个元素
+				distinct 通过hashcode和eques去除重复元素		
+多线程任务窃取fork-join框架：需继承RecursiveAction(无返回值)、RecursiveTask(有返回值)，用于多线程任务拆分
+jdk8 接口中可使用default关键字声明默认方法，也可以使用static 静态方法
+可重复注
+http和https
+		HTTP协议是一种使用明文数据传输的网络协议；HTTPS协议可以理解为HTTP协议的升级，就是在HTTP的基础上增加了数据加密。
+			URL 解析
+				首先判断你输入的是一个合法的 URL 还是一个待搜索的关键词，并且根据你输入的内容进行自动完成、字符编码等操作。浏览器还会进行一些额外的操作，比如安全检查、访问限制
+			DNS 查询
+				 浏览器缓存、操作系统缓存、路由器缓存、客户端电脑上设置的首选  DNS 缓存、根域名服务器查询、
+			TCP 连接
+					TCP/IP 分为四层，在发送数据时，每层都要对数据进行封装
+							应用层：发送 HTTP 请求
+							传输层：TCP 传输报文
+							网络层：IP协议查询Mac地址
+							链路层：以太网协议
+			处理请求
+					
+			接受响应
+
+			渲染页面
+tcp
+			链路层：负责封装和解封装IP报文，发送和接受ARP/RARP报文等。
+			网络层：负责路由以及把分组报文发送给目标网络或主机。
+			传输层：负责对报文进行分组和重组，并以TCP或UDP协议格式封装报文。
+			应用层：负责向用户提供应用程序，比如HTTP、FTP、Telnet、DNS、SMTP等。
+udp
+		UDP协议全称是用户数据报协议，在网络中它与TCP协议一样用于处理数据包，是一种无连接的协议
+					UDP																									TCP
+是否连接	无连接																							面向连接
+是否可靠	不可靠传输，不使用流量控制和拥塞控制								可靠传输，使用流量控制和拥塞控制
+连接对象个数	支持一对一，一对多，多对一和多对多交互通信			只能是一对一通信
+传输方式	面向报文																						面向字节流
+首部开销	首部开销小，仅8字节																	首部最小20字节，最大60字节
+适用场景	适用于实时应用（IP电话、视频会议、直播等）					适用于要求可靠传输的应用，例如文件传输					
+BIO (Blocking I/O)
+		同步阻塞I/O模式，数据的读取写入必须阻塞在一个线程内等待其完
+NIO (New I/O)
+		NIO是一种同步非阻塞的I/O模型，在Java 1.4 中引入了NIO框架，对应 java.nio 包，提供了 Channel , Selector，Buffer等抽象。
+AIO(Asynchronous I/O)
+		AIO 也就是 NIO 2。在 Java 7 中引入了 NIO 的改进版 NIO 2,它是异步非阻塞的IO模型。异步 IO 是基于事件和回调机制实现的，
+		也就是应用操作之后会直接返回，不会堵塞在那里，当后台处理完成，操作系统会通知相应的线程进行后续的操作。
+									
+事务
+  四大特性：原子性/一致性/隔离行/持久性
+  隔离级别：读未提交/不可重复读/可重复读（mysql默认）/序列化
+  	1、脏读：事务A读取了事务B更新的数据，然后B回滚操作，那么A读取到的数据是脏数据
+　　2、不可重复读：事务 A 多次读取同一数据，事务 B 在事务A多次读取的过程中，对数据作了更新并提交，导致事务A多次读取同一数据时，结果 不一致。
+　　3、幻读：系统管理员A将数据库中所有学生的成绩从具体分数改为ABCDE等级，但是系统管理员B就在这个时候插入了一条具体分数的记录，当系统管理员A改结束后发现还有一条记录没有改过来，就好像发生了幻觉一样，这就叫幻读。
+　　小结：不可重复读的和幻读很容易混淆，不可重复读侧重于修改，幻读侧重于新增或删除。解决不可重复读的问题只需锁住满足条件的行，解决幻读需要锁表
+  事务隔离级别								脏读	不可重复读	幻读
+	读未提交（read-uncommitted）	是				是			是
+	读已提交（read-committed）		否				是			是
+	可重复读（repeatable-read）		否				否			是
+	串行化（serializable）				否				否			否
+			PROPAGATION_REQUIRED 如果存在一个事务，则支持当前事务。如果没有事务则开启一个新的事务。
+			PROPAGATION_SUPPORTS 如果存在一个事务，支持当前事务。如果没有事务，则非事务的执行。但是对于事务同步的事务管理器，PROPAGATION_SUPPORTS与不使用事务有少许不同。
+			PROPAGATION_MANDATORY 如果已经存在一个事务，支持当前事务。如果没有一个活动的事务，则抛出异常。
+			PROPAGATION_REQUIRES_NEW 总是开启一个新的事务。如果一个事务已经存在，则将这个存在的事务挂起。
+			PROPAGATION_NOT_SUPPORTED 总是非事务地执行，并挂起任何存在的事务。
+			PROPAGATION_NEVER 总是非事务地执行，如果存在一个活动事务，则抛出异常
+			PROPAGATION_NESTED如果一个活动的事务存在，则运行在一个嵌套的事务中. 如果没有活动事务, 则按TransactionDefinition.PROPAGATION_REQUIRED 属性执行
+dubbo
+		1、dubbo都支持什么协议，推荐用哪种
+				dubbo://（推荐）
+				hessian://
+				http://
+				webservice://
+				rest://
+		2、Dubbo需要 Web 容器吗？
+				不需要，如果硬要用 Web 容器，只会增加复杂性，也浪费资源。
+		3、Dubbo内置了哪几种服务容器？
+				Spring Container
+				Jetty Container
+				Log4j Container
+				Dubbo 的服务容器只是一个简单的 Main 方法，并加载一个简单的 Spring 容器，用于暴露服务。
+		4、Dubbo里面有哪几种节点角色？
+				提供者provider/消费者consumer/注册中心registry/监控中心monitor/服务运行容器contain
+		5、Dubbo默认使用什么注册中心，还有别的选择吗？
+				推荐使用 Zookeeper 作为注册中心，还有 Redis、Multicast、Simple 注册中心，但不推荐。
+		6、Dubbo有哪几种配置方式？
+				1）Spring 配置方式
+				2）Java API 配置方式
+		7、Dubbo 核心的配置有哪些？
+				dubbo:service服务配置
+				dubbo:protocol协议配置
+				dubbo:application应用配置
+				dubbo:registry注册中心配置
+				dubbo:monitor监控中心配置
+				dubbo:provider生产者配置
+				dubbo:consumer消费者配置
+		8、在 Provider 上可以配置的 Consumer 端的属性有哪些？
+				1）timeout：方法调用超时
+				2）retries：失败重试次数，默认重试 2 次
+				3）loadbalance：负载均衡算法，默认随机
+				4）actives 消费者端，最大并发调用限制	
+		8、Dubbo启动时如果依赖的服务不可用会怎样？
+				Dubbo 缺省会在启动时检查依赖的服务是否可用，不可用时会抛出异常，阻止 Spring 初始化完成，默认 check="true"，可以通过 check="false" 关闭检查。
+		9、Dubbo推荐使用什么序列化框架，你知道的还有哪些？
+				推荐使用Hessian序列化，还有Duddo、FastJson、Java自带序列化。
+		10、Dubbo默认使用的是什么通信框架，还有别的选择吗？
+				Dubbo 默认使用 Netty 框架，也是推荐的选择，另外内容还集成有Mina、Grizzly
+		11、Dubbo有哪几种集群容错方案，默认是哪种？
+					failover cluster失败自动切换其他服务器（默认）
+					failfast cluster快速失败，立即报错，只发起依次调用
+					failsafe cluster失败安全，忽略异常
+					failback cluster失败自动回复，记录失败请求，定时发送
+					forking  cluster并行调用多个服务器，只要有一个成功立即返回
+					broadcast cluster广播逐一调用提供者，任意一个报错则报错
+		12、Dubbo有哪几种负载均衡策略，默认是哪种？
+					random loadbalance随机，按权重随机设置概率（默认）
+					rounRobin loadbalance轮询，按公约后的权重设置轮询概率
+					least loadbalance最少活跃调用，相同就随机
+					consistentHash loadbalance一致性hash相同参数的请求总是发送到同一个提供者
+		13、注册了多个同一样的服务，如果测试指定的某一个服务呢？
+				可以配置环境点对点直连，绕过注册中心，将以服务接口为单位，忽略注册中心的提供者列表。
+		14、dubbo支持服务多协议吗？
+						Dubbo 允许配置多协议，在不同服务上支持不同协议或者同一服务上同时支持多种协议。
+		15、当一个服务接口有多种实现时怎么做？
+					当一个接口有多种实现时，可以用 group 属性来分组，服务提供方和消费方都指定同一个 group 即可。
+		16、服务上线怎么兼容旧版本？
+					可以用版本号（version）过渡，多个不同版本的服务注册到注册中心，版本号不同的服务相互间不引用。这个和服务分组的概念有一点类似。
+		17、Dubbo可以对结果进行缓存吗？
+					可以，Dubbo 提供了声明式缓存，用于加速热门数据的访问速度，以减少用户加缓存的工作量。
+		18、Dubbo服务之间的调用是阻塞的吗？
+					默认是同步等待结果阻塞的，支持异步调用。
+					Dubbo 是基于 NIO 的非阻塞实现并行调用，客户端不需要启动多线程即可完成并行调用多个远程服务，相对多线程开销较小，
+					异步调用会返回一个 Future 对象。																										
+		19、服务提供者能实现失效踢出是什么原理？
+					服务失效踢出基于 Zookeeper 的临时节点原理。
+		20、如何解决服务调用链过长的问题？
+					Dubbo 可以使用 Pinpoint 和 Apache Skywalking(Incubator) 实现分布式服务追踪
+		21、服务读写推荐的容错策略是怎样的？
+					读操作建议使用 Failover 失败自动切换，默认重试两次其他服务器。
+					写操作建议使用 Failfast 快速失败，发一次调用失败就立即报错。
+		22、Dubbo必须依赖的包有哪些？
+					Dubbo 必须依赖 JDK，其他为可选。
+		23、Dubbo的管理控制台能做什么？
+				管理控制台主要包含：路由规则，动态配置，服务降级，访问控制，权重调整，负载均衡，等管理功能。
+		24、说说 Dubbo 服务暴露的过程。
+					Dubbo 通过使用 dubbo:service配置或 @service在解析完配置后进行服务暴露，供服务消费者消费。远程暴露和本地暴露
+					1.dubbo底层启动netty服务器，监听20880端口。
+					2.注册中心注册服务
+							在暴露服务的时候，要获取到invoker，再用exporter来暴露执行器。Exporter会用两个，dubboExporter和
+							registryExporter。DubboExporter来开启netty服务器，registryExporter用来注册，服务（执行器）和对应的url地址，
+							注册到注册表里。
+					Dubbo 会在 Spring 实例化完 bean 之后，在刷新容器最后一步发布 ContextRefreshEvent 事件的时候，通知实现了 ApplicationListener
+					的 ServiceBean 类进行回调 onApplicationEvent 事件方法，Dubbo 会在这个方法中调用 ServiceBean 父类 ServiceConfig 的 export 方法，
+					而该方法真正实现了服务的（异步或者非异步）发布。
+																								
+springboot
+    1、什么是 Spring Boot？
+				Spring Boot 是 Spring 开源组织下的子项目，是 Spring 组件一站式解决方案，主要是简化了使用 Spring 的难度，简省了繁重xml的配置，提供了各种启动器，在运行过程中自定配置, 开发者能快速上手。	
+		2、为什么要用 Spring Boot？
+				独立运行 简化配置 自动配置 无代码生成和XML配置 无需部署war文件
+		3、Spring Boot 的核心配置文件有哪几个？它们的区别是什么？
+				Spring Boot 的核心配置文件是 application 和 bootstrap 配置文件。
+				application 配置文件这个容易理解，主要用于 Spring Boot 项目的自动化配置。
+				bootstrap 配置文件有以下几个应用场景：
+									使用SpringCloudConfig配置中心时，这时需要在 bootstrap 配置文件中添加连接到配置中心的配置属性来加载外部配置中心的配置信息；
+									一些固定的不能被覆盖的属性；
+									一些加密/解密的场景；
+		4、Spring Boot 的配置文件有哪几种格式？它们有什么区别？
+				.properties 和 .yml，它们的区别主要是书写格式不同。另外，.yml 格式不支持 @PropertySource 注解导入配置。
+		5、SpringBoot的核心注解是哪个？它主要由哪几个注解组成的？
+				@SpringBootConfiguration：组合了 @Configuration 注解，实现配置文件的功能。
+				@EnableAutoConfiguration：打开自动配置的功能，也可以关闭某个自动配置的选项，如关闭数据源自动配置功能： @SpringBootApplication(exclude = { DataSourceAutoConfiguration.class })。
+				@ComponentScan：Spring组件扫描。
+		6、开启SpringBoot特性有哪几种方式？	
+				继承spring-boot-starter-parent项目
+				导入spring-boot-dependencies项目依赖
+		7、SpringBoot需要独立的容器运行吗？
+				可以不需要，内置了 Tomcat/ Jetty 等容器。
+		8、运行SpringBoot有哪几种方式？
+				1）打包用命令或者放到容器中运行
+				2）用 Maven/ Gradle 插件运行
+				3）直接执行 main 方法运行
+		9、Spring Boot 自动配置原理是什么？
+				注解 @EnableAutoConfiguration, @Configuration, @ConditionalOnClass 就是自动配置的核心，首先它得是一个配置文件，其次根据类路径下
+				是否有这个类去自动配置。
+				Spring Boot的自动配置注解是@EnableAutoConfiguration， 从上面的@Import的类可以找到下面自动加载自动配置的映射。
+				这个方法会加载类路径及所有jar包下META-INF/spring.factories配置中映射的自动配置的类。
+		12、如何在 Spring Boot 启动的时候运行一些特定的代码？
+				可以实现接口 ApplicationRunner 或者 CommandLineRunner，这两个接口实现方式一样，它们都只提供了一个 run 方法，具体请看这篇文章《Spring Boot Runner启动器》。
+		13、Spring Boot 有哪几种读取配置的方式？
+				Spring Boot 可以通过 @PropertySource,@Value,@Environment, @ConfigurationProperties 来绑定变量，
+		14、Spring Boot 支持哪些日志框架？推荐和默认的日志框架是哪个？
+				Spring Boot 支持 Java Util Logging, Log4j2, Lockback 作为日志框架，如果你使用 Starters 启动器，Spring Boot 将使用 Logback 作为默认日志框架，Spring Boot支持Java Util Logging,Log4j2,Lockback作为日志框架，如果你使用starters启动器，Spring Boot将使用Logback作为默认日志框架。无论使用哪种日志框架，Spring Boot都支持配置将日志输出到控制台或者文件中。
+				spring-boot-starter启动器包含spring-boot-starter-logging启动器并集成了slf4j日志抽象及Logback日志框架。
+		15、SpringBoot 实现热部署有哪几种方式？
+				Spring Loaded
+				Spring-boot-devtools			
+		16、你如何理解 Spring Boot 配置加载顺序？
+				在 Spring Boot 里面，可以使用以下几种方式来加载配置。
+					1）properties文件；
+					2）YAML文件；
+					3）系统环境变量；
+					4）命令行参数；
+				配置属性加载的顺序如下：
+							1、开发者工具 Devtools 全局配置参数；
+							2、单元测试上的 @TestPropertySource 注解指定的参数；
+							3、单元测试上的 @SpringBootTest 注解指定的参数；
+							4、命令行指定的参数，如 java -jar springboot.jar --name="Java技术栈"；
+							5、命令行中的 SPRING_APPLICATION_JSON 指定参数, 如 java -Dspring.application.json='{"name":"Java技术栈"}' -jar springboot.jar
+							6、ServletConfig 初始化参数；
+							7、ServletContext 初始化参数；
+							8、JNDI参数（如 java:comp/env/spring.application.json）；
+							9、Java系统参数（来源：System.getProperties()）；
+							10、操作系统环境变量参数；
+							11、RandomValuePropertySource 随机数，仅匹配：ramdom.*；
+							12、JAR包外面的配置文件参数（application-{profile}.properties（YAML））
+							13、JAR包里面的配置文件参数（application-{profile}.properties（YAML））
+							14、JAR包外面的配置文件参数（application.properties（YAML））
+							15、JAR包里面的配置文件参数（application.properties（YAML））
+							16、@Configuration配置文件上 @PropertySource 注解加载的参数；
+							17、默认参数（通过 SpringApplication.setDefaultProperties 指定）；	
+			17、Spring Boot 如何定义多套不同环境配置？
+						applcation.properties
+						application-dev.properties
+						application-test.properties
+						application-prod.properties	
+			18、Spring Boot 可以兼容老 Spring 项目吗，如何做？
+					可以兼容，使用 @ImportResource 注解导入老 Spring 项目配置文件。
+			19、保护 Spring Boot 应用有哪些方法？
+						在生产中使用HTTPS
+						使用Snyk检查你的依赖关系
+						升级到最新版本
+						启用CSRF保护
+						使用内容安全策略防止XSS攻击
+			20、Spring Boot 2.X 有什么新特性？与 1.X 有什么区别？
+					1. 配置变更
+					2. JDK 版本升级
+					3. 第三方类库升级
+					4. 响应式 Spring 编程支持
+					5. HTTP/2 支持
+					6. 配置属性绑定	
+mybatis
+		1、Mybaits的优点：
+				基于SQL语句编程，相当灵活，很好的与各种数据库兼容,能够与Spring很好的集成，提供映射标签
+		2、MyBatis框架的缺点：
+				SQL语句的编写工作量较大，QL语句依赖于数据库，导致数据库移植性差，不能随意更换数据库。
+		3、#{}和${}的区别是什么？
+				#{}是预编译处理，${}是字符串替换。Mybatis在处理#{}时，会将sql中的#{}替换为?号，调用PreparedStatement的set方法来赋值；
+				Mybatis在处理${}时，就是把${}替换成变量的值。使用#{}可以有效的防止SQL注入，提高系统安全性。
+		4、当实体类中的属性名和表中的字段名不一样 ，怎么办 ？
+				 通过在查询的sql语句中定义字段名的别名，让字段名的别名和实体类的属性名一致。
+				 通过<resultMap>来映射字段名和实体类属性名的一一对应的关系。
+		 5、模糊查询like语句该怎么写?
+		 			在Java代码中添加sql通配符。
+		 			在sql语句中拼接通配符，会引起sql注入
+		 6、通常一个Xml映射文件，都会写一个Dao接口与之对应，请问，这个Dao接口的工作原理是什么？Dao接口里的方法，参数不同时，方法能重载吗？
+		 			Dao接口即Mapper接口。接口的全限名，就是映射文件中的namespace的值；接口的方法名，就是映射文件中Mapper的Statement的id值；
+		 			接口方法内的参数，就是传递给sql的参数
+		 			Mapper接口是没有实现类的，当调用接口方法时，接口全限名+方法名拼接字符串作为key值，可唯一定位一个MapperStatement。
+		 			在Mybatis中，每一个<select>、<insert>、<update>、<delete>标签，都会被解析为一个MapperStatement对象
+					Mapper接口里的方法，是不能重载的，因为是使用 全限名+方法名 的保存和寻找策略。Mapper 接口的工作原理是JDK动态代理，Mybatis运行
+					时会使用JDK动态代理为Mapper接口生成代理对象proxy，代理对象会拦截接口方法，转而执行MapperStatement所代表的sql，然后将sql执行结
+					果返回。
+			7、Mybatis是如何进行分页的？分页插件的原理是什么？
+					 Mybatis使用RowBounds对象进行分页，它是针对ResultSet结果集执行的内存分页，而非物理分页。可以在sql内直接书写带有物理分页的参数
+					来完成物理分页功能，也可以使用分页插件来完成物理分页。
+					分页插件的基本原理是使用Mybatis提供的插件接口，实现自定义插件，在插件的拦截方法内拦截待执行的sql，然后重写sql，根据dialect方言
+					，添加对应的物理分页语句和物理分页						
+			8、Mybatis是如何将sql执行结果封装为目标对象并返回的？都有哪些映射形式？
+					第一种是使用<resultMap>标签，逐一定义数据库列名和对象属性名之间的映射关系。
+					第二种是使用sql列的别名功能，将列的别名书写为对象属性名。
+			9、在mapper中如何传递多个参数?
+					第一种：对应的xml,#{0}代表接收的是dao层中的第一个参数，#{1}代表dao层中第二参数，更多参数一致往后加即可。
+					第二种： 使用 @param 注解
+					第三种：多个参数封装成map
+			10、Xml映射文件中，除了常见的select|insert|updae|delete标签之外，还有哪些标签？
+					<resultMap>、<parameterMap>、<sql>、<include>、<selectKey>，加上动态sql的9个标签，其中<sql>为sql片段标签，通过<include>标签引入sql片段，<selectKey>为不支持自增的主键生成策略标签。
+			11、Mybatis的Xml映射文件中，不同的Xml映射文件，id是否可以重复？
+					不同的Xml映射文件，如果配置了namespace，那么id可以重复；如果没有配置namespace，那么id不能重复；
+			12、一对一、一对多的关联查询 ？ 
+					<association>
+					<collection>
+			13、Mybatis是否支持延迟加载？如果支持，它的实现原理是什么？
+						Mybatis仅支持association关联对象和collection关联集合对象的延迟加载，association指的就是一对一，collection指的就是一对多查询。
+						在Mybatis配置文件中，可以配置是否启用延迟加载lazyLoadingEnabled=true|false。
+						使用CGLIB创建目标对象的代理对象，当调用目标方法时，进入拦截器方法，比如调用a.getB().getName()，拦截器invoke()方法发现a.getB()
+						是null值，那么就会单独发送事先保存好的查询关联B对象的sql，把B查询上来，然后调用a.setB(b)，于是a的对象b属性就有值了，接着完成a.getB().getName()方法的调用
+			14、Mybatis的一级、二级缓存:
+						一级缓存: 基于 PerpetualCache 的 HashMap 本地缓存，其存储作用域为 Session，当 Session flush 或 close 之后，该 Session 中的
+											所有 Cache 就将清空，默认打开一级缓存。
+						二级缓存与一级缓存其机制相同，默认也是采用 PerpetualCache，HashMap 存储，不同在于其存储作用域为 Mapper(Namespace)，并且可自
+											定义存储源，如 Ehcache。默认不打开二级缓存，要开启二级缓存，使用二级缓存属性类需要实现Serializable序列化接口(可用
+											来保存对象的状态),可在它的映射文件中配置<cache/> ；
+			15、使用MyBatis的mapper接口调用时有哪些要求？
+					①  Mapper接口方法名和mapper.xml中定义的每个sql的id相同；
+					②  Mapper接口方法的输入参数类型和mapper.xml中定义的每个sql 的parameterType的类型相同；
+					③  Mapper接口方法的输出参数类型和mapper.xml中定义的每个sql的resultType的类型相同；
+					④  Mapper.xml文件中的namespace即是mapper接口的类路径。
+			16、简述Mybatis的插件运行原理，以及如何编写一个插件。
+					Mybatis仅可以编写针对ParameterHandler、ResultSetHandler、StatementHandler、Executor这4种接口的插件，Mybatis使用JDK的动态代理，
+					为需要拦截的接口生成代理对象以实现接口方法拦截功能，每当执行这4种接口对象的方法时，就会进入拦截方法，具体就是InvocationHandler
+					的invoke()方法，当然，只会拦截那些你指定需要拦截的方法。
+					编写插件：实现Mybatis的Interceptor接口并复写intercept()方法，然后在给插件编写注解，指定要拦截哪一个接口的哪些方法即可，记住，
+					别忘了在配置文件中配置你编写的插件。
+数据库
+		1、drop、truncate、 delete区别
+				drop直接删掉表。
+				truncate删除表中数据，再插入时自增长id又从1开始。
+				delete删除表中数据，可以加where字句。	
+		2、count(*)、count(1)、count(column)的区别
+				count(*)对行的数目进行计算,包含NULL
+				count(column)对特定的列的值具有的行数进行计算,不包含NULL值。
+				count()还有一种使用方式,count(1)这个用法和count(*)的结果是一样的。	
+		3、最左前缀原则
+				顾名思义，就是最左优先，上例中我们创建了lname_fname_age多列索引,相当于创建了(lname)单列索引，(lname,fname)组合索引以及(lname,fname,age)组合索引。
+		4、什么是索引？
+				数据库索引，是数据库管理系统中一个排序的数据结构，索引的实现通常使用B树及其变种B+树。
+				在数据之外，数据库系统还维护着满足特定查找算法的数据结构，这些数据结构以某种方式引用（指向）数据，这样就可以在这些数据结构上
+				实现高级查找算法。这种数据结构，就是索引。
+		5、索引的作用？它的优点缺点是什么？
+				协助快速查询、更新数据库表中数据。
+				为表设置索引要付出代价的：
+				一是增加了数据库的存储空间
+				二是在插入和修改数据时要花费较多的时间(因为索引也要随之变动)。
+					创建索引可以大大提高系统的性能（优点）：
+						1.通过创建唯一性索引，可以保证数据库表中每一行数据的唯一性。
+						2.可以大大加快数据的检索速度，这也是创建索引的最主要的原因。
+						3.可以加速表和表之间的连接，特别是在实现数据的参考完整性方面特别有意义。
+						4.在使用分组和排序子句进行数据检索时，同样可以显著减少查询中分组和排序的时间。
+						5.通过使用索引，可以在查询的过程中，使用优化隐藏器，提高系统的性能。
+					增加索引也有许多不利的方面(缺点)：
+						1.创建索引和维护索引要耗费时间，这种时间随着数据量的增加而增加。
+						2.索引需要占物理空间，除了数据表占数据空间之外，每一个索引还要占一定的物理空间，如果要建立聚簇索引，那么需要的空间就会更大。
+						3.当对表中的数据进行增加、删除和修改的时候，索引也要动态的维护，这样就降低了数据的维护速度。	
+		6、哪些列适合建立索引、哪些不适合建索引？
+				（1）在经常需要搜索的列上，可以加快搜索的速度；
+				（2）在作为主键的列上，强制该列的唯一性和组织表中数据的排列结构；
+				（3）在经常用在连接的列上，这些列主要是一些外键，可以加快连接的速度；
+				（4）在经常需要根据范围进行搜索的列上创建索引，因为索引已经排序，其指定的范围是连续的；
+				（5）在经常需要排序的列上创建索引，因为索引已经排序，这样查询可以利用索引的排序，加快排序查询时间；
+				（6）在经常使用在WHERE子句中的列上面创建索引，加快条件的判断速度。	
+						唯一、不为空、经常被查询的字段						
+				对于有些列不应该创建索引：
+						（1）对于那些在查询中很少使用或者参考的列不应该创建索引。
+						（2）对于那些只有很少数据值的列也不应该增加索引。
+						（3）对于那些定义为text, image和bit数据类型的列不应该增加索引。
+						(4)当修改性能远远大于检索性能时，不应该创建索引。
+		7、MySQL B+Tree索引和Hash索引的区别?
+				Hash索引结构的特殊性，其检索效率非常高，索引的检索可以一次定位;
+				B+树索引需要从根节点到枝节点，最后才能访问到页节点这样多次的IO访问
+		8、为什么不都用Hash索引而使用B+树索引？
+				Hash索引仅仅能满足"=","IN"和""查询，不能使用范围查询,因为经过相应的Hash算法处理之后的Hash值的大小关系，并不能保证和Hash运算前完全一样；
+				Hash索引无法被用来避免数据的排序操作，因为Hash值的大小关系并不一定和Hash运算前的键值完全一样；
+				Hash索引不能利用部分索引键查询，对于组合索引，Hash索引在计算Hash值的时候是组合索引键合并后再一起计算Hash值，而不是单独计算Hash值，所以通过组合索引的前面一个或几个索引键进行查询的时候，Hash索引也无法被利用；
+				Hash索引在任何时候都不能避免表扫描，由于不同索引键存在相同Hash值，所以即使取满足某个Hash键值的数据的记录条数，也无法从Hash索引中直接完成查询，还是要回表查询数据；
+				Hash索引遇到大量Hash值相等的情况后性能并不一定就会比B+树索引高。
+		9、B树和B+树的区别
+				B树，每个节点都存储key和data，所有节点组成这棵树，并且叶子节点指针为nul，叶子结点不包含任何关键字信息。
+				B+树，所有的叶子结点中包含了全部关键字的信息，及指向含有这些关键字记录的指针，且叶子结点本身依关键字的大小自小而大的顺序链接，
+					所有的非终端结点可以看成是索引部分，结点中仅含有其子树根结点中最大（或最小）关键字。 (而B 树的非终节点也包含需要查找的有效信息)
+		10、为什么说B+比B树更适合实际应用中操作系统的文件索引和数据库索引？
+					B+的磁盘读写代价更低
+					B+tree的查询效率更加稳定
+		11、聚集索引和非聚集索引区别?
+					聚集索引表记录的排列顺序和索引的排列顺序一致，所以查询效率快
+					非聚集索引指定了表中记录的逻辑顺序，但是记录的物理和索引不一定一致
+					聚集索引和非聚集索引的根本区别是表记录的排列顺序和与索引的排列顺序是否一致。
+		13、MySQL常见的三种存储引擎（InnoDB、MyISAM、MEMORY）的区别?
+					1.InnoDB支持事务，MyISAM不支持，
+					2.MyISAM适合查询以及插入为主的应用。
+					3.InnoDB适合频繁修改以及涉及到安全性较高的应用。
+					4.InnoDB支持外键，MyISAM不支持。
+					5.从MySQL5.5.5以后，InnoDB是默认引擎。
+					6.InnoDB不支持FULLTEXT类型的索引。
+					7.InnoDB中不保存表的行数
+					8.对于自增长的字段，InnoDB中必须包含只有该字段的索引，但是在MyISAM表中可以和其他字段一起建立联合索引。
+					9.DELETE FROM table时，InnoDB不会重新建立表，而是一行一行的 删除，效率非常慢。MyISAM则会重建表。
+					10.InnoDB支持行锁（某些情况下还是锁整表，如 update table set a=1 where user like '%lee%'。	
+		14、MySQL存储引擎MyISAM与InnoDB如何选择
+				1.INNODB会支持一些关系数据库的高级功能，如事务功能和行级锁，MyISAM不支持。
+				2.MyISAM的性能更优，占用的存储空间少，所以，选择何种存储引擎，视具体应用而定。								
+		15、MySQL的MyISAM与InnoDB两种存储引擎在，事务、锁级别，各自的适用场景?
+				MyISAM：只支持表级锁,不提供事务支持。每次查询具有原子性,其执行数度比InnoDB类型更快
+				InnoDB：支持事务和行级锁
+		16、使用explain优化sql和索引?
+				table：显示这一行的数据是关于哪张表的
+				type：这是重要的列，显示连接使用了何种类型。从最好到最差的连接类型为const、eq_reg、ref、range、index和ALL
+				all:full table scan ;MySQL将遍历全表以找到匹配的行；
+				index: index scan; index 和 all的区别在于index类型只遍历索引；
+				range：索引范围扫描，对索引的扫描开始于某一点，返回匹配值的行，常见与between ，等查询；
+				ref：非唯一性索引扫描，返回匹配某个单独值的所有行，常见于使用非唯一索引即唯一索引的非唯一前缀进行查找；
+				eq_ref：唯一性索引扫描，对于每个索引键，表中只有一条记录与之匹配，常用于主键或者唯一索引扫描；
+				const，system：当MySQL对某查询某部分进行优化，并转为一个常量时，使用这些访问类型。如果将主键置于where列表中，MySQL就能将该查询转化为一个常量。
+				possible_keys：显示可能应用在这张表中的索引。如果为空，没有可能的索引。可以为相关的域从WHERE语句中选择一个合适的语句
+				key： 实际使用的索引。如果为NULL，则没有使用索引。很少的情况下，MySQL会选择优化不足的索引。这种情况下，可以在SELECT语句中使用USE INDEX（indexname）来强制使用一个索引或者用IGNORE INDEX（indexname）来强制MySQL忽略索引
+				key_len：使用的索引的长度。在不损失精确性的情况下，长度越短越好
+				ref：显示索引的哪一列被使用了，如果可能的话，是一个常数
+				rows：MySQL认为必须检查的用来返回请求数据的行数
+				Extra：关于MySQL如何解析查询的额外信息。将在表4.3中讨论，但这里可以看到的坏的例子是Using temporary和Using filesort，意思MySQL根本不能使用索引，结果是检索会很慢。					
+		17、MySQL慢查询怎么解决?
+					slow_query_log 慢查询开启状态。
+					slow_query_log_file 慢查询日志存放的位置（这个目录需要MySQL的运行帐号的可写权限，一般设置为MySQL的数据存放目录）。
+					long_query_time 查询超过多少秒才记录		
+		18、MySQL有三种锁的级别：页级、表级、行级。
+					悲观锁:select for update获取的行锁会在当前事务结束时自动释放，因此必须在事务中使用。
+								oracle支持select for update no wait，表示如果拿不到锁立刻报错，而不是等待，MySQL就没有no wait这个选项。
+								MySQL还有个问题是select for update语句执行中所有扫描过的行都会被锁上，这一点很容易造成问题。因此如果在MySQL中用悲观锁务必要确定走了索引，而不是全表扫描。
+					乐观锁一般的做法是在需要锁的数据上增加一个版本号，或者时间戳
+										
+																																		  																		
