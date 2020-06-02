@@ -1,7 +1,7 @@
-volatile 轻量级同步机制 ：保证可见性，不保证原子性，禁止指令重排
+﻿volatile 轻量级同步机制 ：保证可见性，不保证原子性，禁止指令重排
 JMM java内容模型：三大特性 可见性 原子性 有序性
     数据存储在主内存，线程工作时需讲变量从主内存复制到自己的内存空间中，修改完后再放入主内存
-cas 比较交换 自旋锁 unsafe    
+cas 比较交换 自旋锁 unsafe  
     缺点:do while 循环开销大；只能保证一个共享数据；引发出ABA问题（版本号）
 ArrayList 线程不安全，add数据时会参数java.util.concurrentModificationException（并发修改异常），可使用vector、集合工具类Collections.synchronizedList(new ArrayList) 、CopyOnWriteArrayList   
 HashSet 线程不安全，add数据时会参数java.util.concurrentModificationException（并发修改异常），集合工具类Collections.synchronizedSet(new HashSet) 、CopyOnWriteArraySet(public CopyOnWriteArraySet() {al = new CopyOnWriteArrayList<E>();})
@@ -341,61 +341,16 @@ public class DeadLock implements Runnable{
     }
 }
 										
-ArrayList在jdk7中new时直接创建长度为10的数组，jdk8中在new时初始化长度为0，只是在第一次add时会创建长度为10的数组
-HashSet:底层数组+链表，先用hashcode确定下标，再用eques确定是否一致
-HashMap可存储null的key和value，Hashtable 不能存储null的key，linkedHashMap在HashMap底层的基础上增加了一个指向前后元素的指针，便于遍历；treeMap  自然排序或key排序，底层使用红黑树
-HashMap 在jdk7之前使用数组+链表，在jdk8以后使用数组+链表+红黑树
-LinkedHashMap底层使用的是LinkedHashMap.Entry 继承了HashMap.Node，在原有数据结构基础上新增了befor和after节点，使LinkedHashMap有序
-默认填充因子0.75，提前扩容，能尽量减少链表长度
-CurrencyHashMap使用分段锁达到线程安全并提高效率
-map数据结构：key无序不可重复，value无序可重复；一个key-value键值对组成一个entry对象，也是无序不可重复
-   底层构成：1、jdk7 Map map = new HashMap（）；创建一个初始大小为16的entry数组，当使用map.put(key，value) 存储数据时，首先调用key所在的类中的hashcode方法，计算key的hash值，
-                经过某种算法，得到entry数组中的下标位置，如果该下标已存在元素，再调用key所在类中的equals方法，返回false在链表中添加，返回true更新，如果不存在元素直接添加，在不断
-                添加过程中，超过16大小，需要扩容，默认扩容2倍，并将原有的数据复制过来
-             2、jdk8     Map map = new HashMap（）创建一个空的node{}数组，首次调用put方法，会初始化node数组大小为16，当数组某一索引上的元素以链表的形式存在的数量>8且数组大小>64(小于64扩容)时，此索引上的
-             		所有数据采用红黑树方式存储
-单链表倒叙：
-package com.zjf;
 
-public class SingleLinkedNode {
-    private Object data;
-    private SingleLinkedNode next;
 
-    public SingleLinkedNode(Object data, SingleLinkedNode next) {
-        this.data = data;
-        this.next = next;
-    }
 
-    public static void main(String[] args) {
-        SingleLinkedNode n5 = new SingleLinkedNode(5,null);
-        SingleLinkedNode n4 = new SingleLinkedNode(4,n5);
-        SingleLinkedNode n3 = new SingleLinkedNode(3,n4);
-        SingleLinkedNode n2 = new SingleLinkedNode(2,n3);
-        SingleLinkedNode n1 = new SingleLinkedNode(1,n2);
-        System.out.println(sortNode(n1));
-    }
 
-    @Override
-    public String toString() {
-        String s = this.data.toString();
-        SingleLinkedNode next = this.next;
-        while (next!=null){
-            s+=","+next.data;
-            next = next.next;
-        }
-        return s;
-    }
 
-    private static SingleLinkedNode sortNode(SingleLinkedNode n) {
-        SingleLinkedNode node = new SingleLinkedNode(n.data,null);
-        while (n.next!=null){
-            SingleLinkedNode temp = n.next;
-            node = new SingleLinkedNode(temp.data,node);
-            n = temp;
-        }
-        return node;
-    }
-}
+
+
+
+ 
+
 JVM参数类型：标配参数-version   -help  -showversion
 						 X参数-Xint 执行解析  -Xcomp 第一次使用编译为本地代码  -Xmixed 混合模式
 						 XX参数（重点）：boolean类型，一般公式 -XX:+或-某个属性（+表示开启；-表示关闭），常见示例  是否打印GC收集jinfo -flag PrintGCDetails 进程号：-XX:+PrintGCDetails;串行垃圾回收器：-XX:+UseSerialGC

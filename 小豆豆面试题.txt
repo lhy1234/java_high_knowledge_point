@@ -65,8 +65,7 @@
 二叉树层次遍历：https://www.cnblogs.com/bigsai/p/11393609.html
 数组存储二叉树
 
-Arrays.asList();方法实现原理
-    new新的数组，把旧数组的元素放到新数组中，再把新数组循环放到new的ArrayList中，完毕
+
 数据库表可以有几个聚簇索引？1个
 sortset获取不存在的value的score时 报错，为什么？看源码
     java自动装箱-拆箱，Double（null）-->double报空指针，因为拆箱过程是通过Double.doubleValue()调用发放实现；
@@ -95,8 +94,7 @@ string使用final修饰的好处
 2、Feign原理，SpringCloud没有优化HttpConnection创建么？
 3、
 
-ConcurrentHashMap中的get没有加锁，怎么保证线程安全的？
-答：因为Node中的val使用volatile修饰，保证了有序性和可见性；并不是因为数组用volatile修饰了，volatile修饰数组，仅仅保证引用的可见性，并不保证内容可见性
+
 
 Netty
 http-jave基础文档中，连接池的相关概念
@@ -244,13 +242,13 @@ redis支持的数据类型，跳跃表，如何自己实现lru
 spring循环引用问题，如何解决
     1、构造函数引用循环无法解决，因为构造函数引用，得保证属性实例完全加载完毕才能引用
     2、set注入，解决方案：三级缓存
-concurrenthashmap为什么放弃分段锁：效率问题，分段锁耗费性能
+
 fullgc接口导致接口响应慢，如何排插
 多数据源如何实现
 用户请求在服务器是一个请求一个线程么
 tps：每秒系统能处理的请求量
 如何定位代码性能问题
-arraylist扩容
+
 堆排序算法
 arrayqueue和linkedqueue区别
 垃圾回收器
@@ -293,7 +291,7 @@ arrayqueue和linkedqueue区别
     
     aqs公平锁和非公平锁，哪个吞吐量高，为什么
     非公平锁更快，因为减少了线程等待过程。
-    hashmap详细介绍
+   
     
     GC Root节点都有哪些？
     1、方法区中静态变量引用的对象
@@ -316,7 +314,7 @@ arrayqueue和linkedqueue区别
         代码处理的时间长度
     6、介绍B树、B+树、红黑树
     7、jdk1.7和1.8的区别
-    8、ConcurrentHashMap中size方法，1.7和1.8实现的区别
+
     
 
 熟悉的垃圾回收器，工作原理
