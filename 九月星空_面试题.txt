@@ -1,154 +1,14 @@
-﻿volatile 轻量级同步机制 ：保证可见性，不保证原子性，禁止指令重排
-JMM java内容模型：三大特性 可见性 原子性 有序性
-    数据存储在主内存，线程工作时需讲变量从主内存复制到自己的内存空间中，修改完后再放入主内存
-cas 比较交换 自旋锁 unsafe  
-    缺点:do while 循环开销大；只能保证一个共享数据；引发出ABA问题（版本号）
-ArrayList 线程不安全，add数据时会参数java.util.concurrentModificationException（并发修改异常），可使用vector、集合工具类Collections.synchronizedList(new ArrayList) 、CopyOnWriteArrayList   
-HashSet 线程不安全，add数据时会参数java.util.concurrentModificationException（并发修改异常），集合工具类Collections.synchronizedSet(new HashSet) 、CopyOnWriteArraySet(public CopyOnWriteArraySet() {al = new CopyOnWriteArrayList<E>();})
-HashMap 线程不安全，put数据时会参数java.util.concurrentModificationException（并发修改异常），ConcurrentHashMap(分段锁)集合工具类Collections.synchronizedMap(new HashMap) 
-ConcurrentHashMap jdk7使用分段锁，1.8以后使用cas
+﻿
 
-非公平锁/公平锁 Lock lock = new ReentrantLock({true：公平锁；空或false：非公平锁})，默认非公平锁;  公平锁：先来后到，顺序执行，按照申请锁的顺序；非公平锁：可加塞，会造成优先级翻转或饥饿现象，吞吐量大，synchronized也是一种非公平锁
-可重入锁（递归锁）ReentrantLock和Synchronized  线程能够进入任何它已经拥有的锁的所同步的代码块，（获取外层方法锁，可直接获取内层方法的锁）可避免死锁，lock与unlock必须配对
-自旋锁：尝试获取锁的线程不会立即阻塞，而是采用循环的方式尝试获取锁，可以减少线程上下文的切换的消耗，不过会增加cpu的消耗
-package com.zjf;
+    
 
-import java.util.concurrent.atomic.AtomicReference;
 
-//自旋锁
-public class SpinLock {
-    private AtomicReference<Thread> lock = new AtomicReference<>();
-    public void lock(){
-        Thread currency =  Thread.currentThread();
-        System.out.println("thread:"+currency.getName()+"  coming in");
-        while (!lock.compareAndSet(null,currency)){
 
-        }
-    }
-    public void unlock(){
-        Thread currency =  Thread.currentThread();
-        if(lock.compareAndSet(currency,null)){
-            System.out.println("thread:"+currency.getName()+"  go out");
-        }
-    }
 
-    public static void main(String[] args) {
-        SpinLock lock = new SpinLock();
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                lock.lock();
-                try {
-                    Thread.sleep(5000);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-                lock.unlock();
-            }
-        },"t1").start();
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                lock.lock();
-                lock.unlock();
-            }
-        },"t2").start();
-    }
-}
-读写锁/互斥锁（独占锁：写锁；共享锁：读锁） reentrantLock和synchronized都是独占锁，只能同时被一个线程共享；reentrantReadWriteLock读写锁
-package com.zjf;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-//自定义缓存 读写锁
-public class Cache {
-   private volatile Map<String,Object> cacheData = new HashMap<>();
-    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
-    public void read(String key) throws InterruptedException {
-        lock.readLock().lock();
-        System.out.println(Thread.currentThread().getName()+" reading key "+ key );
-        Thread.sleep(300);
-        System.out.println(Thread.currentThread().getName()+" readed key "+ key +" get value:"+cacheData.get(key));
-        lock.readLock().unlock();
-    }
 
-    public void write(String key,Object value) throws InterruptedException {
-        lock.writeLock().lock();
-        System.out.println(Thread.currentThread().getName()+" writing "+key);
-        Thread.sleep(300);
-        cacheData.put(key,value);
-        System.out.println(Thread.currentThread().getName()+" write "+key+" over");
-        lock.writeLock().unlock();
-    }
 
-    public static void main(String[] args) {
-        Cache cache = new Cache();
-        for(int i=0;i<5;i++){
-            final int j = i;
-            new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        cache.write(String.valueOf(j),j);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
-                }
-            },"t_write"+i).start();
-            new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        cache.read(String.valueOf(j));
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
-                }
-            },"t_read"+i).start();
-        }
-    }
-}
-
-countDownLatch    计数器  countdownlatch.countdown() 计数器减一;countdownlatch.await()主线程阻塞，等待计数器减为零。
-CyclicBarrier   new CyclicBarrier(上限屏障数，Runable接口) cyclicBarrier.await（）阻塞当前线程，待所有线程完成后，执行runable接口
-Semaphore 信号量 semaphore.acquire()获得锁；semaphore.replace()释放锁；tryacquire（time，时间单位）尝试在时间内获取锁，若获取不到抛异常
-package com.zjf;
-
-import java.util.concurrent.Semaphore;
-
-//信号量demo 6车抢3车位
-public class SemaphoreDemo {
-
-    public static void main(String[] args) throws Exception{
-        Semaphore semaphore = new Semaphore(3);
-        for (int i=0;i<6;i++){
-            new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        semaphore.acquire();
-                        System.out.println(Thread.currentThread().getName()+"获得车位");
-                        Thread.sleep(3000);
-                        System.out.println(Thread.currentThread().getName()+"离开车位");
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }finally {
-                        semaphore.release();
-                    }
-                }
-            },String.valueOf(i)).start();
-        }
-    }
-
-}
 阻塞队列
    ArrayBlockingQueue由有限数组组成的阻塞队列
    LinkedBlockingQueue由有限（默认integer max）链表组成的阻塞队列
@@ -244,25 +104,9 @@ public class SequeueThread4new {
         },"t_C").start();
     }
 }
-futureTask实现了runable接口，构造方法中需要传入callAble接口实现类，多个线程共用一个futureTask，只有一个线程执行runable
-synchronized与lock的区别
-	1、原始构成
-		synchronized是关键字属于jvm层次，底层通过monitor对象来完成，wait和notify等方法也依赖monotor对象在同步块或方法中才能被调用monitorenter，monitorexist；
-		lock属于api层次的调用
-	2、使用方法
-	  synchronized不需要手动释放锁，不会造成死锁
-	  lock需手动释放，lock和unclock需配对使用
-	3、等待是否可中断
-		synchronized锁不可中断，只能正常结束或异常退出
-		renntranLock可设置超时退出tryLock(time,unit);lockInterruptibly()方法代码块中调用interrup()方法可中断
-	4、加锁是否公平
-		synchronized是非公平锁
-		lock可通过构造方法，true公平锁，false非公平锁，默认非公平锁	
-	5、绑定多个条件condition
-	   synchronized不支持，只能随机唤醒一个或所有
-	   reentrantLock可分组唤醒，精确唤醒某个线程	
-非静态方法的锁默认是this，静态方法的锁是对应的Class实例
-某一个时刻内，只能有一个线程持有锁，无论几个方法	   
+
+
+
 线程池：主要工作是控制工作线程的数量，处理过程中将任务放入队列，然后在线程中创建任务，如果线程超过了最大线程数量，则排队等候，等其他线程执行完再从队列中取出任务来执行
         主要特点：线程复用，控制最大线程数，管理线程
         优点：1降低资源消耗2提高响应速度3提高线程的可管理性	   
